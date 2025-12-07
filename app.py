@@ -11,17 +11,17 @@ import sys
 
 app = Flask(__name__)
 
-# --- CONFIG JALUR MUTLAK (PENTING) ---
-# Ini mencari folder tempat file app.py berada
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, 'model_sleep.pkl')
+# --- SOLUSI KASAR: ALAMAT MANUAL (HARDCODE) ---
+# Kita tidak pakai os.path lagi. Kita tunjuk langsung jarinya.
+MODEL_PATH = '/home/anjarranjayy/sleep-new-ui/model_sleep.pkl'
 
-# Variabel Default (Supaya tidak crash)
+# Variabel Default
 forest = []
 X_min = np.zeros(12); X_max = np.ones(12)
 feature_names = []
+debug_msg = ""
 
-# --- LOAD MODEL DENGAN DIAGNOSA ---
+# --- LOAD MODEL ---
 try:
     with open(MODEL_PATH, 'rb') as f:
         data = pickle.load(f)
@@ -29,10 +29,12 @@ try:
     X_min = data.get('X_min', np.zeros(12))
     X_max = data.get('X_max', np.ones(12))
     feature_names = data.get('feature_names', [])
-    print(f"SUKSES: Model dimuat dari {MODEL_PATH}", file=sys.stderr)
+    debug_msg = "Sukses Load."
 except Exception as e:
-    print(f"ERROR: Gagal memuat model dari {MODEL_PATH}. Detail: {e}", file=sys.stderr)
+    # Jika gagal, catat errornya biar tampil di layar
+    debug_msg = f"GAGAL LOAD dari {MODEL_PATH}. Error: {e}"
 
+# Fungsi Prediksi
 def predict_tree(node, x):
     if not isinstance(node, dict): return 0
     if 'label' in node: return node['label']
@@ -40,6 +42,7 @@ def predict_tree(node, x):
     if x[node['feature']] < node['threshold']: return predict_tree(node['left'], x)
     else: return predict_tree(node['right'], x)
 
+# Fungsi Gambar
 def get_tree_image(tree, fnames, title):
     try:
         plt.figure(figsize=(6, 4))
@@ -69,13 +72,11 @@ def index():
     tree_plots = []
     
     if request.method == 'POST':
-        try:
-            # Cek Model
-            if not forest:
-                # Pesan Error yang informatif dengan lokasi path
-                err_msg = f"Error: File Model Hilang.<br>Lokasi seharusnya: {MODEL_PATH}<br>Solusi: Jalankan 'python train_model.py' di Console."
-                return render_template('index.html', prediction_text=err_msg, result_class="error")
+        # JIKA MODEL KOSONG, TAMPILKAN ERROR ASLINYA
+        if not forest:
+            return render_template('index.html', prediction_text=f"<h3>CRITICAL ERROR:</h3>{debug_msg}", result_class="error")
 
+        try:
             raw = [
                 float(request.form.get('gender')), float(request.form.get('age')),
                 float(request.form.get('occupation')), float(request.form.get('sleep_duration')),
@@ -84,14 +85,11 @@ def index():
                 float(request.form.get('heart_rate')), float(request.form.get('daily_steps')),
                 float(request.form.get('systolic')), float(request.form.get('diastolic'))
             ]
-            
             x = (np.array(raw) - X_min) / (X_max - X_min + 1e-8)
-            
             votes = []
             for t in forest:
                 v = predict_tree(t, x)
                 if not np.isnan(v): votes.append(v)
-            
             final = 0
             if votes: final = int(np.round(np.mean(votes)))
 
@@ -105,9 +103,7 @@ def index():
             if forest:
                 img = get_tree_image(forest[0], feature_names, "Visualisasi Keputusan AI")
                 if img: tree_plots.append(img)
-
         except Exception as e:
-            prediction_text = f"Error System: {e}"
-            result_class = "error"
+            prediction_text = f"Error: {e}"; result_class = "error"
 
     return render_template('index.html', prediction_text=prediction_text, result_class=result_class, tree_plots=tree_plots)
