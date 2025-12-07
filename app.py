@@ -7,19 +7,21 @@ import matplotlib.pyplot as plt
 import io
 import base64
 import os
+import sys
 
 app = Flask(__name__)
 
-# --- KONFIGURASI JALUR MUTLAK ---
+# --- CONFIG JALUR MUTLAK (PENTING) ---
+# Ini mencari folder tempat file app.py berada
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, 'model_sleep.pkl')
 
-# Variabel Default (Supaya tidak crash jika model belum ada)
+# Variabel Default (Supaya tidak crash)
 forest = []
 X_min = np.zeros(12); X_max = np.ones(12)
 feature_names = []
 
-# Load Model Aman
+# --- LOAD MODEL DENGAN DIAGNOSA ---
 try:
     with open(MODEL_PATH, 'rb') as f:
         data = pickle.load(f)
@@ -27,7 +29,9 @@ try:
     X_min = data.get('X_min', np.zeros(12))
     X_max = data.get('X_max', np.ones(12))
     feature_names = data.get('feature_names', [])
-except: pass 
+    print(f"SUKSES: Model dimuat dari {MODEL_PATH}", file=sys.stderr)
+except Exception as e:
+    print(f"ERROR: Gagal memuat model dari {MODEL_PATH}. Detail: {e}", file=sys.stderr)
 
 def predict_tree(node, x):
     if not isinstance(node, dict): return 0
@@ -43,7 +47,7 @@ def get_tree_image(tree, fnames, title):
         def recurse(n, x=0.5, y=1.0, dx=0.25, dy=0.15):
             if 'label' in n:
                 val = int(n['label']) if not np.isnan(n['label']) else 0
-                bg = "#4ade80" if val == 0 else "#f87171" # Hijau vs Merah
+                bg = "#4ade80" if val == 0 else "#f87171"
                 ax.text(x, y, f"Hasil:{val}", ha='center', bbox=dict(boxstyle="round", fc=bg, ec="white"))
                 return
             fn = str(n['feature'])
@@ -66,10 +70,12 @@ def index():
     
     if request.method == 'POST':
         try:
+            # Cek Model
             if not forest:
-                return render_template('index.html', prediction_text="Error: Model belum dilatih.", result_class="error")
+                # Pesan Error yang informatif dengan lokasi path
+                err_msg = f"Error: File Model Hilang.<br>Lokasi seharusnya: {MODEL_PATH}<br>Solusi: Jalankan 'python train_model.py' di Console."
+                return render_template('index.html', prediction_text=err_msg, result_class="error")
 
-            # Ambil data (Urutan Wajib Sama)
             raw = [
                 float(request.form.get('gender')), float(request.form.get('age')),
                 float(request.form.get('occupation')), float(request.form.get('sleep_duration')),
@@ -96,13 +102,12 @@ def index():
                 prediction_text = "⚠️ TERDETEKSI GANGGUAN TIDUR"
                 result_class = "danger"
             
-            # Gambar 1 pohon saja biar loading cepat & rapi
             if forest:
-                img = get_tree_image(forest[0], feature_names, "Visualisasi Alur Keputusan AI")
+                img = get_tree_image(forest[0], feature_names, "Visualisasi Keputusan AI")
                 if img: tree_plots.append(img)
 
         except Exception as e:
-            prediction_text = f"Error: {e}"
+            prediction_text = f"Error System: {e}"
             result_class = "error"
 
     return render_template('index.html', prediction_text=prediction_text, result_class=result_class, tree_plots=tree_plots)

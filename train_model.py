@@ -3,20 +3,20 @@ import numpy as np
 import pickle
 import os
 
-# --- KONFIGURASI JALUR MUTLAK (Agar tidak error di server manapun) ---
+# --- KONFIGURASI PATH MUTLAK ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(BASE_DIR, 'Sleep_health_and_lifestyle_dataset.csv')
 MODEL_PATH = os.path.join(BASE_DIR, 'model_sleep.pkl')
 
 print("=== MEMULAI TRAINING ===")
+print(f"Target Lokasi Model: {MODEL_PATH}")
 
-# 1. LOAD DATA
 try:
     df = pd.read_csv(DATA_PATH)
 except FileNotFoundError:
-    print("Error: Dataset tidak ditemukan."); exit()
+    print(f"Error: Dataset tidak ditemukan di {DATA_PATH}"); exit()
 
-# 2. BERSIH-BERSIH DATA
+# PREPROCESSING
 if 'Person ID' in df.columns: df = df.drop(columns=['Person ID'])
 try:
     if 'Blood Pressure' in df.columns:
@@ -25,19 +25,16 @@ try:
     else: df['systolic'] = 120.0; df['diastolic'] = 80.0
 except: df['systolic'] = 120.0; df['diastolic'] = 80.0
 
-# Encoding
 df['Gender'] = df['Gender'].replace({'Male': 1, 'Female': 0}).astype(float)
 df['Occupation'] = df['Occupation'].astype('category').cat.codes.astype(float)
 df['BMI Category'] = df['BMI Category'].astype('category').cat.codes.astype(float)
 df['Sleep Disorder'] = df['Sleep Disorder'].replace({'None': 0, 'Sleep Apnea': 1, 'Insomnia': 1}).fillna(0).astype(int)
 
-# --- TEKNIK OVERSAMPLING (Supaya tidak Normal terus) ---
+# OVERSAMPLING
 df_sehat = df[df['Sleep Disorder'] == 0]
 df_sakit = df[df['Sleep Disorder'] == 1]
-# Kita perbanyak data sakit (kali 2) agar seimbang
 df_final = pd.concat([df_sehat, df_sakit, df_sakit], axis=0).reset_index(drop=True)
 
-# Urutan Fitur Baku
 features = ['Gender', 'Age', 'Occupation', 'Sleep Duration', 'Quality of Sleep', 
             'Physical Activity Level', 'Stress Level', 'BMI Category', 'Heart Rate', 
             'Daily Steps', 'systolic', 'diastolic']
@@ -47,18 +44,13 @@ for f in features:
 
 X = df_final[features].values.astype(float)
 y = df_final['Sleep Disorder'].values
+X_min = X.min(axis=0); X_max = X.max(axis=0)
 
-# Simpan Info Scaling
-X_min = X.min(axis=0)
-X_max = X.max(axis=0)
-
-# 3. RANDOM FOREST MANUAL
+# TRAINING MANUAL
 def split(X, y, f, t):
     m = X[:, f] < t
     return X[m], y[m], X[~m], y[~m]
-def gini(y):
-    if len(y)==0: return 0
-    p = np.mean(y); return 2*p*(1-p)
+def gini(y): return 0 if len(y)==0 else 2*np.mean(y)*(1-np.mean(y))
 def best_split(X, y):
     bg, bf, bt = 1, None, None
     for f in range(X.shape[1]):
@@ -78,13 +70,12 @@ def build(X, y, d=0):
     return {'feature': f, 'threshold': t, 'left': build(xl, yl, d+1), 'right': build(xr, yr, d+1)}
 
 forest = []
-print("Melatih Model...", end="")
-for i in range(7): # 7 Pohon
+print("Melatih...", end="")
+for i in range(7):
     idx = np.random.choice(len(X), len(X), replace=True)
     forest.append(build(X[idx], y[idx]))
     print(".", end="")
 
-# 4. SIMPAN
 data = {'forest': forest, 'X_min': X_min, 'X_max': X_max, 'feature_names': features}
 with open(MODEL_PATH, 'wb') as f:
     pickle.dump(data, f)
